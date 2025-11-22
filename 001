@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【デモ版】生協お問い合わせAI（セキュリティ搭載）</title>
+    <style>
+        /* 基本スタイル */
+        body { font-family: "Helvetica Neue", Arial, sans-serif; background: #f4f7f6; display: flex; justify-content: center; padding: 20px; margin: 0; }
+        .app-container { background: #fff; width: 100%; max-width: 400px; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #2e7d32; font-size: 18px; margin-bottom: 20px; }
+        
+        .input-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: #555; font-size: 14px; }
+        input[type="text"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        
+        .ai-btn { width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 25px; font-size: 16px; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 10px; }
+        .ai-btn:hover { background: #45a049; }
+        .ai-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        textarea { width: 100%; height: 180px; padding: 10px; border: 2px solid #ddd; border-radius: 8px; font-size: 15px; resize: none; box-sizing: border-box; margin-top: 20px; background: #fafafa; }
+        textarea:focus { border-color: #4CAF50; outline: none; background: #fff; }
+
+        .retry-btn { display: none; margin-top: 10px; background: #fff; color: #666; border: 1px solid #ccc; padding: 8px 15px; border-radius: 20px; font-size: 13px; cursor: pointer; width: 100%; }
+        
+        .spinner { width: 18px; height: 18px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s linear infinite; display: none; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* エラー表示用エリア */
+        .error-message {
+            display: none;
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-top: 15px;
+            border: 1px solid #ef9a9a;
+            font-weight: bold;
+        }
+        .note { font-size: 11px; color: #888; margin-top: 5px; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <h2>お問い合わせAI<br><span style="font-size:12px; color:#666;">(Secured by Dify)</span></h2>
+    
+    <div class="input-group">
+        <label>キーワードを入力（100文字以内）</label>
+        <input type="text" id="keywords" placeholder="例：トマト　腐ってる　交換" maxlength="100">
+        <div class="note">デモ用NGワード: 「デモ攻撃」「命令無視」など</div>
+    </div>
+
+    <button class="ai-btn" id="generateBtn" onclick="callDifyAPI()">
+        <div class="spinner" id="spinner"></div>
+        <span id="btnText">AIで文章を作成する</span>
+    </button>
+
+    <div id="errorArea" class="error-message"></div>
+
+    <textarea id="resultText" placeholder="ここに生成された文章が入ります"></textarea>
+    
+    <button class="retry-btn" id="retryBtn" onclick="callDifyAPI()">↻ 別の言い回しで再作成</button>
+
+    <button class="ai-btn" style="margin-top:20px; background:#2196F3;" onclick="alert('送信しました')">送信する</button>
+</div>
+
+<script>
+    // ==========================================
+    // 【重要】Dify Cloud APIキーを設定してください
+    // ==========================================
+    const API_KEY = 'app-L9cZhJUbzKtAos6o5LdKu72x'; 
+    const API_URL = 'https://api.dify.ai/v1/workflows/run';
+
+    async function callDifyAPI() {
+        const inputVal = document.getElementById('keywords').value.trim();
+        if(!inputVal) { alert('キーワードを入力してください'); return; }
+
+        startLoading();
+
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    "inputs": { "keywords": inputVal },
+                    "response_mode": "blocking",
+                    "user": "demo-user"
+                })
+            });
+
+            const data = await response.json();
+
+            // 【重要】モデレーションエラー等のハンドリング
+            if (!response.ok || data.status === 400 || (data.data && data.data.status === 'failed')) {
+                // Difyからのエラーメッセージを取得
+                let errorMsg = "処理できませんでした。";
+                if(data.message) errorMsg = data.message;
+                
+                // モデレーションで弾かれた場合の挙動
+                showError(`⚠️ セキュリティアラート:\nAIがこの入力を拒否しました。\n(理由: ${errorMsg})`);
+                return;
+            }
+
+            // 成功時
+            const text = data.data.outputs.result_text;
+            document.getElementById('resultText').value = text;
+            document.getElementById('retryBtn').style.display = 'block';
+
+        } catch (e) {
+            console.error(e);
+            // CORSエラーなどの通信エラー
+            alert('通信エラーが発生しました。\n※ChromeのCORS解除拡張機能はONになっていますか？');
+        } finally {
+            stopLoading();
+        }
+    }
+
+    function showError(msg) {
+        const errDiv = document.getElementById('errorArea');
+        errDiv.innerText = msg;
+        errDiv.style.display = 'block';
+        document.getElementById('resultText').value = ''; // テキストエリアはクリア
+    }
+
+    function startLoading() {
+        document.getElementById('generateBtn').disabled = true;
+        document.getElementById('retryBtn').disabled = true;
+        document.getElementById('spinner').style.display = 'block';
+        document.getElementById('btnText').innerText = 'チェック中...';
+        document.getElementById('resultText').style.opacity = 0.5;
+        document.getElementById('errorArea').style.display = 'none'; // エラー消す
+    }
+
+    function stopLoading() {
+        document.getElementById('generateBtn').disabled = false;
+        document.getElementById('retryBtn').disabled = false;
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('btnText').innerText = 'AIで文章を作成する';
+        document.getElementById('resultText').style.opacity = 1;
+    }
+</script>
+
+</body>
+</html>
